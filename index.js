@@ -11,25 +11,31 @@ import {
   TabsTrigger 
 } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { RefreshCw, Star, Trophy, AlertTriangle } from 'lucide-react';
+import { RefreshCw, Star, Trophy, AlertTriangle, Info } from 'lucide-react';
 
-// Cricbuzz API Service Configuration
-class CricbuzzApiService {
-  constructor() {
-    // Replace with your actual RapidAPI key
-    this.apiKey = 'YOUR_RAPID_API_KEY';
-    this.baseUrl = 'https://cricbuzz-cricket.p.rapidapi.com';
-    this.headers = {
-      'X-RapidAPI-Key': this.apiKey,
-      'X-RapidAPI-Host': 'cricbuzz-cricket.p.rapidapi.com'
-    };
+// Advanced ESPN Cricinfo API Service
+class ESPNCricinfoApiService {
+  private baseUrl = 'https://rest.cricketapi.com/rest/v2/';
+  private apiKey: string;
+
+  constructor(apiKey: string) {
+    this.apiKey = apiKey;
   }
 
-  async fetchFromApi(endpoint) {
+  private async fetchFromApi(endpoint: string, params: Record<string, string> = {}) {
+    const url = new URL(`${this.baseUrl}${endpoint}`);
+    url.searchParams.append('apikey', this.apiKey);
+
+    Object.entries(params).forEach(([key, value]) => {
+      url.searchParams.append(key, value);
+    });
+
     try {
-      const response = await fetch(`${this.baseUrl}${endpoint}`, {
+      const response = await fetch(url.toString(), {
         method: 'GET',
-        headers: this.headers
+        headers: {
+          'Content-Type': 'application/json',
+        }
       });
 
       if (!response.ok) {
@@ -43,103 +49,153 @@ class CricbuzzApiService {
     }
   }
 
-  async fetchLiveMatches() {
+  // Fetch Live Matches
+  async fetchLiveMatches(): Promise<MatchData[]> {
     try {
-      const data = await this.fetchFromApi('/matches/v1/live');
+      const data = await this.fetchFromApi('matches', { status: 'live' });
       
-      // Transform API response to our app's match format
-      return data.typeMatches?.flatMap(typeMatch => 
-        typeMatch.seriesMatches?.flatMap(seriesMatch => 
-          seriesMatch.matchDetails?.map(match => ({
-            id: match.matchId?.toString() || 'unknown',
-            team1: match.team1?.teamName || 'Team 1',
-            team2: match.team2?.teamName || 'Team 2',
-            status: 'Live',
-            currentScore: match.matchScoreDetails?.teamScores?.[0]?.score || 'Yet to begin',
-            matchType: match.matchFormat || 'Unknown',
-            venue: match.venue?.name || 'Unknown'
-          })) || []
-        ) || []
-      ) || [];
+      return data.matches.map((match: any) => ({
+        id: match.match_id,
+        team1: {
+          name: match.teams[0].name,
+          shortName: match.teams[0].short_name,
+          logo: match.teams[0].logo_url
+        },
+        team2: {
+          name: match.teams[1].name,
+          shortName: match.teams[1].short_name,
+          logo: match.teams[1].logo_url
+        },
+        status: 'Live',
+        matchType: match.format_str,
+        venue: match.venue.name,
+        series: {
+          name: match.competition.name,
+          season: match.competition.season
+        },
+        currentInnings: match.live_inning_number,
+        currentScore: {
+          runs: match.live_score?.runs || 0,
+          wickets: match.live_score?.wickets || 0,
+          overs: match.live_score?.overs || 0
+        }
+      }));
     } catch (error) {
-      console.error('Error processing live matches:', error);
+      console.error('Error fetching live matches:', error);
       return [];
     }
   }
 
-  async fetchUpcomingMatches() {
+  // Fetch Upcoming Matches
+  async fetchUpcomingMatches(): Promise<MatchData[]> {
     try {
-      const data = await this.fetchFromApi('/matches/v1/upcoming');
+      const data = await this.fetchFromApi('matches', { status: 'upcoming' });
       
-      // Transform API response to our app's match format
-      return data.typeMatches?.flatMap(typeMatch => 
-        typeMatch.seriesMatches?.flatMap(seriesMatch => 
-          seriesMatch.matchDetails?.map(match => ({
-            id: match.matchId?.toString() || 'unknown',
-            team1: match.team1?.teamName || 'Team 1',
-            team2: match.team2?.teamName || 'Team 2',
-            status: 'Upcoming',
-            date: match.startDate 
-              ? new Date(parseInt(match.startDate)).toISOString().split('T')[0] 
-              : 'TBA',
-            time: match.startTime || 'TBA',
-            matchType: match.matchFormat || 'Unknown',
-            venue: match.venue?.name || 'Unknown'
-          })) || []
-        ) || []
-      ) || [];
+      return data.matches.map((match: any) => ({
+        id: match.match_id,
+        team1: {
+          name: match.teams[0].name,
+          shortName: match.teams[0].short_name,
+          logo: match.teams[0].logo_url
+        },
+        team2: {
+          name: match.teams[1].name,
+          shortName: match.teams[1].short_name,
+          logo: match.teams[1].logo_url
+        },
+        status: 'Upcoming',
+        matchType: match.format_str,
+        venue: match.venue.name,
+        series: {
+          name: match.competition.name,
+          season: match.competition.season
+        },
+        scheduledDate: new Date(match.start_time).toISOString(),
+        scheduledTime: match.start_time
+      }));
     } catch (error) {
-      console.error('Error processing upcoming matches:', error);
+      console.error('Error fetching upcoming matches:', error);
       return [];
     }
   }
 
-  async fetchPastMatches() {
+  // Fetch Past Matches
+  async fetchPastMatches(): Promise<MatchData[]> {
     try {
-      const data = await this.fetchFromApi('/matches/v1/recent');
+      const data = await this.fetchFromApi('matches', { status: 'completed' });
       
-      // Transform API response to our app's match format
-      return data.typeMatches?.flatMap(typeMatch => 
-        typeMatch.seriesMatches?.flatMap(seriesMatch => 
-          seriesMatch.matchDetails?.map(match => ({
-            id: match.matchId?.toString() || 'unknown',
-            team1: match.team1?.teamName || 'Team 1',
-            team2: match.team2?.teamName || 'Team 2',
-            status: 'Completed',
-            result: match.matchResult?.description || 'Match Completed',
-            date: match.startDate 
-              ? new Date(parseInt(match.startDate)).toISOString().split('T')[0] 
-              : 'TBA',
-            venue: match.venue?.name || 'Unknown'
-          })) || []
-        ) || []
-      ) || [];
+      return data.matches.map((match: any) => ({
+        id: match.match_id,
+        team1: {
+          name: match.teams[0].name,
+          shortName: match.teams[0].short_name,
+          logo: match.teams[0].logo_url
+        },
+        team2: {
+          name: match.teams[1].name,
+          shortName: match.teams[1].short_name,
+          logo: match.teams[1].logo_url
+        },
+        status: 'Completed',
+        matchType: match.format_str,
+        venue: match.venue.name,
+        series: {
+          name: match.competition.name,
+          season: match.competition.season
+        },
+        result: {
+          winner: match.winner?.name || 'No Result',
+          margin: match.winner_runs || match.winner_wickets
+        },
+        date: new Date(match.end_time).toISOString()
+      }));
     } catch (error) {
-      console.error('Error processing past matches:', error);
+      console.error('Error fetching past matches:', error);
       return [];
     }
   }
 
-  async fetchMatchDetails(matchId) {
+  // Fetch Detailed Match Information
+  async fetchMatchDetails(matchId: string): Promise<MatchDetailsData> {
     try {
-      const data = await this.fetchFromApi(`/matches/v1/${matchId}/commentary`);
-      
-      // Transform API response to our detailed match format
+      const data = await this.fetchFromApi(`match/${matchId}`);
+      const match = data.match;
+
       return {
-        id: matchId,
-        battingTeam: data.battingTeam?.teamName || 'Unknown',
-        bowlingTeam: data.bowlingTeam?.teamName || 'Unknown',
-        currentBatsmen: data.batsmen?.map(batsman => ({
-          name: batsman.name || 'Batsman',
-          runs: batsman.runs || 0,
-          balls: batsman.balls || 0
-        })) || [],
-        currentBowlers: data.bowlers?.map(bowler => ({
-          name: bowler.name || 'Bowler',
-          overs: bowler.overs || 0,
-          runs: bowler.runs || 0,
-          wickets: bowler.wickets || 0
-        })) || []
+        id: match.match_id,
+        currentInnings: {
+          battingTeam: {
+            name: match.live_inning?.batting_team.name,
+            logo: match.live_inning?.batting_team.logo_url
+          },
+          bowlingTeam: {
+            name: match.live_inning?.bowling_team.name,
+            logo: match.live_inning?.bowling_team.logo_url
+          },
+          currentScore: {
+            runs: match.live_inning?.runs || 0,
+            wickets: match.live_inning?.wickets || 0,
+            overs: match.live_inning?.overs || 0
+          },
+          fallOfWickets: match.live_inning?.fow || [],
+          runRate: match.live_inning?.run_rate || 0
+        },
+        topPerformers: {
+          batsmen: match.live_inning?.top_batsmen?.map((batsman: any) => ({
+            name: batsman.name,
+            runs: batsman.runs,
+            balls: batsman.balls,
+            strikeRate: batsman.strike_rate
+          })) || [],
+          bowlers: match.live_inning?.top_bowlers?.map((bowler: any) => ({
+            name: bowler.name,
+            wickets: bowler.wickets,
+            runs: bowler.runs,
+            economy: bowler.economy
+          })) || []
+        },
+        partnerships: match.live_inning?.current_partnership || null,
+        powerPlay: match.live_inning?.powerplay_stats || null
       };
     } catch (error) {
       console.error(`Error fetching match details for ${matchId}:`, error);
@@ -148,13 +204,80 @@ class CricbuzzApiService {
   }
 }
 
+// TypeScript Interfaces for Type Safety
+interface TeamInfo {
+  name: string;
+  shortName: string;
+  logo: string;
+}
+
+interface MatchData {
+  id: string;
+  team1: TeamInfo;
+  team2: TeamInfo;
+  status: string;
+  matchType: string;
+  venue: string;
+  series: {
+    name: string;
+    season: string;
+  };
+  currentScore?: {
+    runs: number;
+    wickets: number;
+    overs: number;
+  };
+  scheduledDate?: string;
+  scheduledTime?: string;
+  result?: {
+    winner: string;
+    margin?: string;
+  };
+  date?: string;
+}
+
+interface MatchDetailsData {
+  id: string;
+  currentInnings: {
+    battingTeam: TeamInfo;
+    bowlingTeam: TeamInfo;
+    currentScore: {
+      runs: number;
+      wickets: number;
+      overs: number;
+    };
+    fallOfWickets: any[];
+    runRate: number;
+  };
+  topPerformers: {
+    batsmen: {
+      name: string;
+      runs: number;
+      balls: number;
+      strikeRate: number;
+    }[];
+    bowlers: {
+      name: string;
+      wickets: number;
+      runs: number;
+      economy: number;
+    }[];
+  };
+  partnerships: any;
+  powerPlay: any;
+}
+
 // Create an instance of the API service
-const cricketApiService = new CricbuzzApiService();
+// Note: Replace with your actual API key
+const cricketApiService = new ESPNCricinfoApiService('YOUR_ESPN_CRICINFO_API_KEY');
 
 // Match Card Component
-const MatchCard = ({ match, type = 'live' }) => {
+const MatchCard: React.FC<{ match: MatchData, type?: 'live' | 'upcoming' | 'past' }> = ({ 
+  match, 
+  type = 'live' 
+}) => {
   const [expanded, setExpanded] = useState(false);
-  const [matchDetails, setMatchDetails] = useState(null);
+  const [matchDetails, setMatchDetails] = useState<MatchDetailsData | null>(null);
 
   const handleExpand = async () => {
     if (!expanded && type === 'live') {
@@ -172,7 +295,19 @@ const MatchCard = ({ match, type = 'live' }) => {
     <Card className="mb-4 hover:shadow-lg transition-shadow duration-300">
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <div className="flex items-center space-x-2">
-          <h3 className="text-lg font-bold">{match.team1} vs {match.team2}</h3>
+          <div className="flex items-center space-x-2">
+            <img 
+              src={match.team1.logo} 
+              alt={match.team1.name} 
+              className="w-8 h-8 rounded-full"
+            />
+            <h3 className="text-lg font-bold">{match.team1.name} vs {match.team2.name}</h3>
+            <img 
+              src={match.team2.logo} 
+              alt={match.team2.name} 
+              className="w-8 h-8 rounded-full"
+            />
+          </div>
           <Badge variant={type === 'live' ? 'destructive' : 'secondary'}>
             {match.status}
           </Badge>
@@ -186,46 +321,65 @@ const MatchCard = ({ match, type = 'live' }) => {
         )}
       </CardHeader>
       <CardContent>
-        {type === 'live' && (
+        {type === 'live' && match.currentScore && (
           <div className="text-sm">
-            <p>Current Score: {match.currentScore}</p>
+            <p>Current Score: {match.currentScore.runs}/{match.currentScore.wickets}</p>
+            <p>Overs: {match.currentScore.overs}</p>
             <p>Match Type: {match.matchType}</p>
             <p>Venue: {match.venue}</p>
+            <p>Series: {match.series.name} ({match.series.season})</p>
           </div>
         )}
         {type === 'upcoming' && (
           <div className="text-sm">
-            <p>Date: {match.date}</p>
-            <p>Time: {match.time}</p>
+            <p>Date: {new Date(match.scheduledDate || '').toLocaleDateString()}</p>
+            <p>Time: {new Date(match.scheduledTime || '').toLocaleTimeString()}</p>
             <p>Match Type: {match.matchType}</p>
             <p>Venue: {match.venue}</p>
+            <p>Series: {match.series.name} ({match.series.season})</p>
           </div>
         )}
-        {type === 'past' && (
+        {type === 'past' && match.result && (
           <div className="text-sm">
-            <p>Result: {match.result}</p>
-            <p>Date: {match.date}</p>
+            <p>Result: {match.result.winner} won</p>
+            <p>Date: {new Date(match.date || '').toLocaleDateString()}</p>
             <p>Venue: {match.venue}</p>
+            <p>Series: {match.series.name} ({match.series.season})</p>
           </div>
         )}
 
         {expanded && matchDetails && (
           <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-            <h4 className="font-semibold mb-2">Match Details</h4>
+            <h4 className="font-semibold mb-2 flex items-center">
+              <Info className="mr-2" /> Match Details
+            </h4>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <h5 className="font-medium">Current Batsmen</h5>
-                {matchDetails.currentBatsmen.map((batsman, index) => (
-                  <p key={index}>{batsman.name}: {batsman.runs}({batsman.balls})</p>
+                <h5 className="font-medium">Top Batsmen</h5>
+                {matchDetails.topPerformers.batsmen.map((batsman, index) => (
+                  <p key={index}>
+                    {batsman.name}: {batsman.runs} ({batsman.balls} balls, SR: {batsman.strikeRate.toFixed(2)})
+                  </p>
                 ))}
               </div>
               <div>
-                <h5 className="font-medium">Current Bowlers</h5>
-                {matchDetails.currentBowlers.map((bowler, index) => (
-                  <p key={index}>{bowler.name}: {bowler.overs}({bowler.wickets})</p>
+                <h5 className="font-medium">Top Bowlers</h5>
+                {matchDetails.topPerformers.bowlers.map((bowler, index) => (
+                  <p key={index}>
+                    {bowler.name}: {bowler.wickets}/{bowler.runs} (Econ: {bowler.economy.toFixed(2)})
+                  </p>
                 ))}
               </div>
             </div>
+            {matchDetails.partnerships && (
+              <div className="mt-4">
+                <h5 className="font-medium">Current Partnership</h5>
+                <p>
+                  {matchDetails.partnerships.batsmen.map((b: any) => b.name).join(' & ')}: 
+                  {matchDetails.partnerships.runs} runs
+                </p>
+              </div>
+            )}
           </div>
         )}
       </CardContent>
@@ -234,12 +388,12 @@ const MatchCard = ({ match, type = 'live' }) => {
 };
 
 // Main Cricket Score App Component
-const CricketScoreApp = () => {
-  const [liveMatches, setLiveMatches] = useState([]);
-  const [upcomingMatches, setUpcomingMatches] = useState([]);
-  const [pastMatches, setPastMatches] = useState([]);
+const CricketScoreApp: React.FC = () => {
+  const [liveMatches, setLiveMatches] = useState<MatchData[]>([]);
+  const [upcomingMatches, setUpcomingMatches] = useState<MatchData[]>([]);
+  const [pastMatches, setPastMatches] = useState<MatchData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchMatches = async () => {
     try {
@@ -269,7 +423,7 @@ const CricketScoreApp = () => {
     return () => clearInterval(intervalId);
   }, []);
 
-  const renderMatchSection = (matches, type) => {
+  const renderMatchSection = (matches: MatchData[], type: 'live' | 'upcoming' | 'past') => {
     if (loading) {
       return (
         <div className="text-center py-8 flex items-center justify-center">
